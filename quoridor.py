@@ -70,6 +70,20 @@ class QuoridorState(BaseState):
     `agent1_remaining_walls` ].
     """
 
+    memory_cells: NDArray[np.int_]
+    """
+    Array of shape ''(2, 9, 9, 2)''.
+    First index is agent_id, second and third index is x and y of the cell.
+    It should memorize two information per cell.
+    One is the shortest distance from the destination, and the other is the pointing direction of the cell.
+    
+    Pointing Direction
+        - 0 : 12 o'clock(up)
+        - 1 : 3 o'clock(right)
+        - 2 : 6 o'clock(down)
+        - 3 : 9 o'clock(left)
+    """
+
     done: bool = False
     """
     Boolean value indicating whether the game is done.
@@ -415,6 +429,16 @@ class QuoridorEnv(BaseEnv[QuoridorState, QuoridorAction]):
                 np.zeros((self.board_size, self.board_size), dtype=np.int_),
             ]
         )
+
+        starting_memory_cells = np.zeros((2, self.board_size, self.board_size, 2), dtype=np.int_)
+        for coordinate_x in range(self.board_size):
+            for coordinate_y in range(self.board_size):
+                starting_memory_cells[0, coordinate_x, coordinate_y, 0] = 8 - coordinate_y
+                starting_memory_cells[0, coordinate_x, coordinate_y, 1] = 2
+        for coordinate_x in range(self.board_size):
+            for coordinate_y in range(self.board_size):
+                starting_memory_cells[1, coordinate_x, coordinate_y, 0] = coordinate_y
+                starting_memory_cells[1, coordinate_x, coordinate_y, 1] = 0
 
         initial_state = QuoridorState(
             board=starting_board,
