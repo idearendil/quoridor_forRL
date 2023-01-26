@@ -20,6 +20,8 @@ from typing import Callable, Deque, Dict, Optional
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
+from queue import PriorityQueue
+
 if sys.version_info < (3, 10):
     from typing_extensions import TypeAlias
 else:
@@ -68,6 +70,20 @@ class QuoridorState(BaseState):
     """
     Array of shape ``(2,)``, in the form of [ `agent0_remaining_walls`,
     `agent1_remaining_walls` ].
+    """
+
+    memory_cells: NDArray[np.int_]
+    """
+    Array of shape ''(2, 9, 9, 2)''.
+    First index is agent_id, second and third index is x and y of the cell.
+    It should memorize two information per cell.
+    One is the shortest distance from the destination, and the other is the pointing direction of the cell.
+    
+    Pointing Direction
+        - 0 : 12 o'clock(up)
+        - 1 : 3 o'clock(right)
+        - 2 : 6 o'clock(down)
+        - 3 : 9 o'clock(left)
     """
 
     done: bool = False
@@ -231,6 +247,8 @@ class QuoridorEnv(BaseEnv[QuoridorState, QuoridorAction]):
 
         board = np.copy(state.board)
         walls_remaining = np.copy(state.walls_remaining)
+        memory_cells = np.copy(state.memory_cells)
+        cut_ones = [[], []]
 
         if action_type == 0:  # Move piece
             current_pos = np.argwhere(state.board[agent_id] == 1)[0]
@@ -297,11 +315,17 @@ class QuoridorEnv(BaseEnv[QuoridorState, QuoridorAction]):
                 raise ValueError("cannot create intersecting walls")
             board[2, x, y] = 1 + agent_id
             board[2, x + 1, y] = 1 + agent_id
-            if not self._check_path_exists(board, 0) or not self._check_path_exists(
-                board, 1
-            ):
-                raise ValueError("cannot place wall blocking all paths")
             walls_remaining[agent_id] -= 1
+
+            if memory_cells[0][x][y][1] == 2:   cut_ones[0].append((x, y))
+            if memory_cells[0][x][y+1][1] == 0:   cut_ones[0].append((x, y+1))
+            if memory_cells[1][x][y][1] == 2:   cut_ones[1].append((x, y))
+            if memory_cells[1][x][y+1][1] == 0:   cut_ones[1].append((x, y+1))
+
+            if memory_cells[0][x+1][y][1] == 2:   cut_ones[0].append((x+1, y))
+            if memory_cells[0][x+1][y+1][1] == 0:   cut_ones[0].append((x+1, y+1))
+            if memory_cells[1][x+1][y][1] == 2:   cut_ones[1].append((x+1, y))
+            if memory_cells[1][x+1][y+1][1] == 0:   cut_ones[1].append((x+1, y+1))
 
         elif action_type == 2:  # Place wall vertically
             if walls_remaining[agent_id] == 0:
@@ -321,20 +345,66 @@ class QuoridorEnv(BaseEnv[QuoridorState, QuoridorAction]):
                 raise ValueError("cannot create intersecting walls")
             board[3, x, y] = 1 + agent_id
             board[3, x, y + 1] = 1 + agent_id
-            if not self._check_path_exists(board, 0) or not self._check_path_exists(
-                board, 1
-            ):
-                raise ValueError("cannot place wall blocking all paths")
             walls_remaining[agent_id] -= 1
+
+            if memory_cells[0][x][y][1] == 1:   cut_ones[0].append((x, y))
+            if memory_cells[0][x+1][y][1] == 3:   cut_ones[0].append((x+1, y))
+            if memory_cells[1][x][y][1] == 1:   cut_ones[1].append((x, y))
+            if memory_cells[1][x+1][y][1] == 3:   cut_ones[1].append((x+1, y))
+
+            if memory_cells[0][x][y+1][1] == 1:   cut_ones[0].append((x, y+1))
+            if memory_cells[0][x+1][y+1][1] == 3:   cut_ones[0].append((x+1, y+1))
+            if memory_cells[1][x][y+1][1] == 1:   cut_ones[1].append((x, y+1))
+            if memory_cells[1][x+1][y+1][1] == 3:   cut_ones[1].append((x+1, y+1))
 
         else:
             raise ValueError(f"invalid action_type: {action_type}")
 
+        if action_type > 0:
+
+            directions = [(0, -1), (1, 0), (0, 1), (-1, 0)]
+
+            for agent_id in range(2):
+
+                visited = set(cut_ones[agent_id])
+                q = Deque(cut_ones[agent_id])
+                pri_q = PriorityQueue()
+                while q:
+                    here = q.popleft()
+                    memory_cells[agent_id][here[0]][here[1]][0] = 99999
+                    memory_cells[agent_id][here[0]][here[1]][1] = -1
+                    for dir_id, (dx, dy) in enumerate(directions):
+                        there = (here[0] + dx, here[1] + dy)
+                        if (not self._check_in_range(np.array(there))) or self._check_wall_blocked(board, np.array(here), np.array(there)):
+                            continue
+                        if there not in visited:
+                            visited.add(there)
+                            if memory_cells[agent_id][there[0]][there[1]][1] == (dir_id + 2) % 4:
+                                q.append(there)
+                            else:
+                                pri_q.put((memory_cells[agent_id][there[0]][there[1]][0], there))
+
+                while not pri_q.empty():
+                    dist, here = pri_q.get()
+                    for dir_id, (dx, dy) in enumerate(directions):
+                        there = (here[0] + dx, here[1] + dy)
+                        if (not self._check_in_range(np.array(there))) or self._check_wall_blocked(board, np.array(here), np.array(there)):
+                            continue
+                        if memory_cells[agent_id][there[0]][there[1]][0] > dist + 1:
+                            memory_cells[agent_id][there[0]][there[1]][0] = dist + 1
+                            memory_cells[agent_id][there[0]][there[1]][1] = (dir_id + 2) % 4
+                            pri_q.put((memory_cells[agent_id][there[0]][there[1]][0], there))
+            
+            if not self._check_path_exists(board, memory_cells, 0) or not self._check_path_exists(board, memory_cells, 1):
+                raise ValueError("cannot place wall blocking all paths")
+
         next_state = QuoridorState(
             board=board,
             walls_remaining=walls_remaining,
+            memory_cells=memory_cells,
             done=self._check_wins(board),
         )
+
         if post_step_fn is not None:
             post_step_fn(next_state, agent_id, action)
         return next_state
@@ -344,28 +414,9 @@ class QuoridorEnv(BaseEnv[QuoridorState, QuoridorAction]):
             bottom_right = np.array([self.board_size, self.board_size])
         return np.all(np.logical_and(np.array([0, 0]) <= pos, pos < bottom_right))
 
-    def _check_path_exists(self, board: NDArray[np.int_], agent_id: int) -> bool:
-        start_pos = tuple(np.argwhere(board[agent_id] == 1)[0])
-        visited = set()
-        q = Deque([start_pos])
-        goal_y = 8 if agent_id == 0 else 0
-        while q:  # Run BFS to determine path
-            here = q.popleft()
-            if here[1] == goal_y:
-                return True
-            for dx, dy in [(-1, 0), (0, -1), (0, 1), (1, 0)]:
-                there = (here[0] + dx, here[1] + dy)
-                if not np.all(
-                    np.logical_and(
-                        [0, 0] <= np.array(there),
-                        np.array(there) < [self.board_size, self.board_size],
-                    )
-                ) or self._check_wall_blocked(board, np.array(here), np.array(there)):
-                    continue
-                if there not in visited:
-                    visited.add(there)
-                    q.append(there)
-        return False
+    def _check_path_exists(self, board: NDArray[np.int_], memory_cells: NDArray[np.int_], agent_id: int) -> bool:
+        agent_pos = tuple(np.argwhere(board[agent_id] == 1)[0])
+        return memory_cells[agent_id][agent_pos[0]][agent_pos[1]][0] < 99999 
 
     def _check_wall_blocked(
         self,
@@ -416,10 +467,21 @@ class QuoridorEnv(BaseEnv[QuoridorState, QuoridorAction]):
             ]
         )
 
+        starting_memory_cells = np.zeros((2, self.board_size, self.board_size, 2), dtype=np.int_)
+        for coordinate_x in range(self.board_size):
+            for coordinate_y in range(self.board_size):
+                starting_memory_cells[0, coordinate_x, coordinate_y, 0] = 8 - coordinate_y
+                starting_memory_cells[0, coordinate_x, coordinate_y, 1] = 2
+        for coordinate_x in range(self.board_size):
+            for coordinate_y in range(self.board_size):
+                starting_memory_cells[1, coordinate_x, coordinate_y, 0] = coordinate_y
+                starting_memory_cells[1, coordinate_x, coordinate_y, 1] = 0
+
         initial_state = QuoridorState(
             board=starting_board,
-            done=False,
             walls_remaining=np.array((self.max_walls, self.max_walls)),
+            memory_cells=starting_memory_cells,
+            done=False,
         )
 
         return initial_state
