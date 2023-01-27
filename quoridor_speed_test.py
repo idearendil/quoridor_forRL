@@ -60,7 +60,7 @@ class FasterAgent(BaseAgent):
         return self._rng.choice(actions)
 
 def run_original():
-    assert faster_quoridor.QuoridorEnv.env_id == RandomAgent.env_id
+    assert quoridor.QuoridorEnv.env_id == RandomAgent.env_id
     start = time.time()
 
     for game in range(10):

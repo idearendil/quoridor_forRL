@@ -1,5 +1,5 @@
 """
-Fights environment for Quoridor. (two player variant)
+Puoribor, a variant of the classical `Quoridor <https://en.wikipedia.org/wiki/Quoridor>`_ game.
 
 Coordinates are specified in the form of ``(x, y)``, where ``(0, 0)`` is the top left corner.
 All coordinates and directions are absolute and does not change between agents.
@@ -29,7 +29,7 @@ else:
 
 from fights.base import BaseEnv, BaseState
 
-QuoridorAction: TypeAlias = ArrayLike
+PuoriborAction: TypeAlias = ArrayLike
 """
 Alias of :obj:`ArrayLike` to describe the action type.
 Encoded as an array of shape ``(3,)``, in the form of
@@ -39,17 +39,19 @@ Encoded as an array of shape ``(3,)``, in the form of
     - 0 (move piece)
     - 1 (place wall horizontally)
     - 2 (place wall vertically)
+    - 3 (rotate section)
 
 `coordinate_x`, `coordinate_y`
     - position to move the piece to
     - top or left position to place the wall
+    - top left position of the section to rotate
 """
 
 
 @dataclass
-class QuoridorState(BaseState):
+class PuoriborState(BaseState):
     """
-    ``QuoridorState`` represents the game state.
+    ``PuoriborState`` represents the game state.
     """
 
     board: NDArray[np.int_]
@@ -64,6 +66,8 @@ class QuoridorState(BaseState):
           by agent 0, 2 for agent 1)
         - ``C = 3``: label encoded positions of vertical walls. (encoding is same as
           ``C = 2``)
+        - ``C = 4``: one-hot encoded positions of horizontal walls' midpoints.
+        - ``C = 5``: one-hot encoded positions of vertical walls' midpoints.
     """
 
     walls_remaining: NDArray[np.int_]
@@ -104,6 +108,7 @@ class QuoridorState(BaseState):
         horizontal_wall_bold = "━━━"
         left_intersection = "├"
         middle_intersection = "┼"
+        middle_intersection_bold = "╋"
         right_intersection = "┤"
         left_intersection_bottom = "└"
         middle_intersection_bottom = "┴"
@@ -143,12 +148,63 @@ class QuoridorState(BaseState):
                         right_intersection_bottom if y == 8 else right_intersection
                     )
                 else:
-                    result += (
-                        middle_intersection_bottom if y == 8 else middle_intersection
-                    )
+                    if np.any(self.board[4:, x, y]):
+                        result += middle_intersection_bold
+                    else:
+                        result += (
+                            middle_intersection_bottom
+                            if y == 8
+                            else middle_intersection
+                        )
             result += "\n"
 
         return result
+
+    def perspective(self, agent_id: int) -> NDArray[np.int_]:
+        """
+        Return board where specified agent with ``agent_id`` is on top.
+
+        :arg agent_id:
+            The ID of agent to use as base.
+
+        :returns:
+            A rotated ``board`` array. The board's channel 0 will contain position of
+            agent of id ``agent_id``, and channel 1 will contain the opponent's
+            position. In channel 2 and 3, walles labeled with 1 are set by agent of id
+            ``agent_id``, and the others are set by the opponent.
+        """
+        if agent_id == 0:
+            return self.board
+        inverted_walls = (self.board[2:4] == 2).astype(np.int_) + (
+            self.board[2:4] == 1
+        ).astype(np.int_) * 2
+        rotated = np.stack(
+            [
+                np.rot90(self.board[1], 2),
+                np.rot90(self.board[0], 2),
+                np.pad(
+                    np.rot90(inverted_walls[0], 2)[:, 1:],
+                    ((0, 0), (0, 1)),
+                    constant_values=0,
+                ),
+                np.pad(
+                    np.rot90(inverted_walls[1], 2)[1:],
+                    ((0, 1), (0, 0)),  # type: ignore
+                    constant_values=0,
+                ),
+                np.pad(
+                    np.rot90(self.board[4], 2)[1:, 1:],
+                    ((0, 1), (0, 1)),  # type: ignore
+                    constant_values=0,
+                ),
+                np.pad(
+                    np.rot90(self.board[5], 2)[1:, 1:],
+                    ((0, 1), (0, 1)),  # type: ignore
+                    constant_values=0,
+                ),
+            ]
+        )
+        return rotated
 
     def to_dict(self) -> Dict:
         """
@@ -164,7 +220,7 @@ class QuoridorState(BaseState):
         }
 
     @staticmethod
-    def from_dict(serialized) -> QuoridorState:
+    def from_dict(serialized) -> PuoriborState:
         """
         Deserialize from serialized dict.
 
@@ -172,17 +228,17 @@ class QuoridorState(BaseState):
             A serialized dict.
 
         :returns:
-            Deserialized ``QuoridorState`` object.
+            Deserialized ``PuoriborState`` object.
         """
-        return QuoridorState(
+        return PuoriborState(
             board=np.array(serialized["board"]),
             walls_remaining=np.array(serialized["walls_remaining"]),
             done=serialized["done"],
         )
 
 
-class QuoridorEnv(BaseEnv[QuoridorState, QuoridorAction]):
-    env_id = ("quoridor", 0)  # type: ignore
+class PuoriborEnv(BaseEnv[PuoriborState, PuoriborAction]):
+    env_id = ("puoribor", 3)  # type: ignore
     """
     Environment identifier in the form of ``(name, version)``.
     """
@@ -199,17 +255,17 @@ class QuoridorEnv(BaseEnv[QuoridorState, QuoridorAction]):
 
     def step(
         self,
-        state: QuoridorState,
+        state: PuoriborState,
         agent_id: int,
-        action: QuoridorAction,
+        action: PuoriborAction,
         *,
         pre_step_fn: Optional[
-            Callable[[QuoridorState, int, QuoridorAction], None]
+            Callable[[PuoriborState, int, PuoriborAction], None]
         ] = None,
         post_step_fn: Optional[
-            Callable[[QuoridorState, int, QuoridorAction], None]
+            Callable[[PuoriborState, int, PuoriborAction], None]
         ] = None,
-    ) -> QuoridorState:
+    ) -> PuoriborState:
         """
         Step through the game, calculating the next state given the current state and
         action to take.
@@ -221,7 +277,7 @@ class QuoridorEnv(BaseEnv[QuoridorState, QuoridorAction]):
             ID of the agent that takes the action. (``0`` or ``1``)
 
         :arg action:
-            Agent action, encoded in the form described by :obj:`QuoridorAction`.
+            Agent action, encoded in the form described by :obj:`PuoriborAction`.
 
         :arg pre_step_fn:
             Callback to run before executing action. ``state``, ``agent_id`` and
@@ -249,6 +305,7 @@ class QuoridorEnv(BaseEnv[QuoridorState, QuoridorAction]):
         walls_remaining = np.copy(state.walls_remaining)
         memory_cells = np.copy(state.memory_cells)
         cut_ones = [[], []]
+        open_ones = [[], []]
 
         if action_type == 0:  # Move piece
             current_pos = np.argwhere(state.board[agent_id] == 1)[0]
@@ -306,16 +363,12 @@ class QuoridorEnv(BaseEnv[QuoridorState, QuoridorAction]):
                 raise ValueError("right section out of board")
             elif np.any(board[2, x : x + 2, y]):
                 raise ValueError("wall already placed")
-            vertical_line = board[3, x, :]
-            zero_indices = np.where(vertical_line[: y + 1] == 0)[0]
-            if len(zero_indices) == 0:
-                if y % 2 == 0:
-                    raise ValueError("cannot create intersecting walls")
-            elif y - int(zero_indices[-1]) % 2 == 1:
+            elif board[5, x, y]:
                 raise ValueError("cannot create intersecting walls")
             board[2, x, y] = 1 + agent_id
             board[2, x + 1, y] = 1 + agent_id
             walls_remaining[agent_id] -= 1
+            board[4, x, y] = 1
 
             if memory_cells[0][x][y][1] == 2:   cut_ones[0].append((x, y))
             if memory_cells[0][x][y+1][1] == 0:   cut_ones[0].append((x, y+1))
@@ -336,16 +389,12 @@ class QuoridorEnv(BaseEnv[QuoridorState, QuoridorAction]):
                 raise ValueError("right section out of board")
             elif np.any(board[3, x, y : y + 2]):
                 raise ValueError("wall already placed")
-            horizontal_line = board[2, :, y]
-            zero_indices = np.where(horizontal_line[: x + 1] == 0)[0]
-            if len(zero_indices) == 0:
-                if x % 2 == 0:
-                    raise ValueError("cannot create intersecting walls")
-            elif x - int(zero_indices[-1]) % 2 == 1:
+            elif board[4, x, y]:
                 raise ValueError("cannot create intersecting walls")
             board[3, x, y] = 1 + agent_id
             board[3, x, y + 1] = 1 + agent_id
             walls_remaining[agent_id] -= 1
+            board[5, x, y] = 1
 
             if memory_cells[0][x][y][1] == 1:   cut_ones[0].append((x, y))
             if memory_cells[0][x+1][y][1] == 3:   cut_ones[0].append((x+1, y))
@@ -357,11 +406,107 @@ class QuoridorEnv(BaseEnv[QuoridorState, QuoridorAction]):
             if memory_cells[1][x][y+1][1] == 1:   cut_ones[1].append((x, y+1))
             if memory_cells[1][x+1][y+1][1] == 3:   cut_ones[1].append((x+1, y+1))
 
+        elif action_type == 3:  # Rotate section
+            region_top_left = np.array([x, y])
+            if not self._check_in_range(
+                region_top_left,
+                bottom_right=np.array([self.board_size - 3, self.board_size - 3]),
+            ):
+                raise ValueError("rotation region out of board")
+            elif walls_remaining[agent_id] < 2:
+                raise ValueError(f"less than two walls left for agent {agent_id}")
+
+            horizontal_walls = set()
+            vertical_walls = set()
+
+            for coordinate_x in range(x, x+4, 1):
+                for coordinate_y in range(y-1, y+4, 1):
+                    if coordinate_y >= 0 and coordinate_y <= 7:
+                        if board[2][coordinate_x][coordinate_y]:
+                            horizontal_walls.add((coordinate_x, coordinate_y))
+                        if board[3][coordinate_y][coordinate_x]:
+                            vertical_walls.add((coordinate_y, coordinate_x))
+
+            padded_horizontal = np.pad(board[2], 1, constant_values=0)
+            padded_vertical = np.pad(board[3], 1, constant_values=0)
+            padded_horizontal_midpoints = np.pad(board[4], 1, constant_values=0)
+            padded_vertical_midpoints = np.pad(board[5], 1, constant_values=0)
+            px, py = x + 1, y + 1
+            horizontal_region = np.copy(padded_horizontal[px : px + 4, py - 1 : py + 4])
+            vertical_region = np.copy(padded_vertical[px - 1 : px + 4, py : py + 4])
+            padded_horizontal_midpoints[px - 1, py - 1 : py + 4] = 0
+            padded_horizontal_midpoints[px + 3, py - 1 : py + 4] = 0
+            padded_vertical_midpoints[px - 1 : px + 4, py - 1] = 0
+            padded_vertical_midpoints[px - 1 : px + 4, py + 3] = 0
+            horizontal_region_midpoints = np.copy(
+                padded_horizontal_midpoints[px : px + 4, py - 1 : py + 4]
+            )
+            vertical_region_midpoints = np.copy(
+                padded_vertical_midpoints[px - 1 : px + 4, py : py + 4]
+            )
+            horizontal_region_new = np.rot90(vertical_region)
+            vertical_region_new = np.rot90(horizontal_region)
+            horizontal_region_midpoints_new = np.rot90(vertical_region_midpoints)
+            vertical_region_midpoints_new = np.rot90(horizontal_region_midpoints)
+            padded_horizontal[px : px + 4, py - 1 : py + 4] = horizontal_region_new
+            padded_vertical[px - 1 : px + 4, py : py + 4] = vertical_region_new
+            padded_horizontal_midpoints[
+                px - 1 : px + 3, py - 1 : py + 4
+            ] = horizontal_region_midpoints_new
+            padded_vertical_midpoints[
+                px - 1 : px + 4, py : py + 4
+            ] = vertical_region_midpoints_new
+            board[2] = padded_horizontal[1:-1, 1:-1]
+            board[3] = padded_vertical[1:-1, 1:-1]
+            board[4] = padded_horizontal_midpoints[1:-1, 1:-1]
+            board[5] = padded_vertical_midpoints[1:-1, 1:-1]
+            board[2, :, 8] = 0
+            board[3, 8, :] = 0
+            board[4, :, 8] = 0
+            board[5, 8, :] = 0
+
+            walls_remaining[agent_id] -= 2
+
+            for coordinate_x in range(x, x+4, 1):
+                for coordinate_y in range(y-1, y+4, 1):
+                    if coordinate_y >= 0 and coordinate_y <= 7:
+                        if board[2][coordinate_x][coordinate_y]:
+                            if (coordinate_x, coordinate_y) not in horizontal_walls:
+                                for agent_id in range(2):
+                                    if memory_cells[agent_id][coordinate_x][coordinate_y][1] == 2:   cut_ones[agent_id].append((coordinate_x, coordinate_y))
+                                    if memory_cells[agent_id][coordinate_x][coordinate_y+1][1] == 0:   cut_ones[agent_id].append((coordinate_x, coordinate_y+1))
+                        else:
+                            if (coordinate_x, coordinate_y) in horizontal_walls:
+                                for agent_id in range(2):
+                                    if memory_cells[agent_id][coordinate_x][coordinate_y][0] > memory_cells[agent_id][coordinate_x][coordinate_y+1][0] + 1:
+                                        memory_cells[agent_id][coordinate_x][coordinate_y][0] = memory_cells[agent_id][coordinate_x][coordinate_y+1][0] + 1
+                                        memory_cells[agent_id][coordinate_x][coordinate_y][1] = 2
+                                        open_ones[agent_id].append((coordinate_x, coordinate_y))
+                                    if memory_cells[agent_id][coordinate_x][coordinate_y+1][0] > memory_cells[agent_id][coordinate_x][coordinate_y][0] + 1:
+                                        memory_cells[agent_id][coordinate_x][coordinate_y+1][0] = memory_cells[agent_id][coordinate_x][coordinate_y][0] + 1
+                                        memory_cells[agent_id][coordinate_x][coordinate_y+1][1] = 0
+                                        open_ones[agent_id].append((coordinate_x, coordinate_y+1))
+                        if board[3][coordinate_y][coordinate_x]:
+                            if (coordinate_y, coordinate_x) not in vertical_walls:
+                                for agent_id in range(2):
+                                    if memory_cells[agent_id][coordinate_y][coordinate_x][1] == 1:   cut_ones[agent_id].append((coordinate_y, coordinate_x))
+                                    if memory_cells[agent_id][coordinate_y][coordinate_x+1][1] == 3:   cut_ones[agent_id].append((coordinate_y, coordinate_x+1))
+                        else:
+                            if (coordinate_y, coordinate_x) in vertical_walls:
+                                for agent_id in range(2):
+                                    if memory_cells[agent_id][coordinate_y][coordinate_x][0] > memory_cells[agent_id][coordinate_y][coordinate_x+1][0] + 1:
+                                        memory_cells[agent_id][coordinate_y][coordinate_x][0] = memory_cells[agent_id][coordinate_y][coordinate_x+1][0] + 1
+                                        memory_cells[agent_id][coordinate_y][coordinate_x][1] = 1
+                                        open_ones[agent_id].append((coordinate_y, coordinate_x))
+                                    if memory_cells[agent_id][coordinate_y][coordinate_x+1][0] > memory_cells[agent_id][coordinate_y][coordinate_x][0] + 1:
+                                        memory_cells[agent_id][coordinate_y][coordinate_x+1][0] = memory_cells[agent_id][coordinate_y][coordinate_x][0] + 1
+                                        memory_cells[agent_id][coordinate_y][coordinate_x+1][1] = 3
+                                        open_ones[agent_id].append((coordinate_y, coordinate_x+1))
         else:
             raise ValueError(f"invalid action_type: {action_type}")
 
         if action_type > 0:
-
+            
             directions = [(0, -1), (1, 0), (0, 1), (-1, 0)]
 
             for agent_id in range(2):
@@ -385,6 +530,8 @@ class QuoridorEnv(BaseEnv[QuoridorState, QuoridorAction]):
                         else:
                             pri_q.put((memory_cells[agent_id][there[0]][there[1]][0], there))
 
+                for coordinate_x, coordinate_y in open_ones[agent_id]:
+                    pri_q.put((memory_cells[agent_id][coordinate_x][coordinate_y][0], (coordinate_x, coordinate_y)))
                 while not pri_q.empty():
                     dist, here = pri_q.get()
                     for dir_id, (dx, dy) in enumerate(directions):
@@ -397,15 +544,17 @@ class QuoridorEnv(BaseEnv[QuoridorState, QuoridorAction]):
                             pri_q.put((memory_cells[agent_id][there[0]][there[1]][0], there))
             
             if not self._check_path_exists(board, memory_cells, 0) or not self._check_path_exists(board, memory_cells, 1):
-                raise ValueError("cannot place wall blocking all paths")
+                if action_type == 3:
+                    raise ValueError("cannot rotate to block all paths")
+                else:
+                    raise ValueError("cannot place wall blocking all paths")
 
-        next_state = QuoridorState(
+        next_state = PuoriborState(
             board=board,
             walls_remaining=walls_remaining,
             memory_cells=memory_cells,
             done=self._check_wins(board),
         )
-
         if post_step_fn is not None:
             post_step_fn(next_state, agent_id, action)
         return next_state
@@ -417,7 +566,7 @@ class QuoridorEnv(BaseEnv[QuoridorState, QuoridorAction]):
 
     def _check_path_exists(self, board: NDArray[np.int_], memory_cells: NDArray[np.int_], agent_id: int) -> bool:
         agent_pos = tuple(np.argwhere(board[agent_id] == 1)[0])
-        return memory_cells[agent_id][agent_pos[0]][agent_pos[1]][0] < 99999 
+        return memory_cells[agent_id][agent_pos[0]][agent_pos[1]][0] < 99999
 
     def _check_wall_blocked(
         self,
@@ -443,9 +592,9 @@ class QuoridorEnv(BaseEnv[QuoridorState, QuoridorAction]):
     def _check_wins(self, board: NDArray[np.int_]) -> bool:
         return bool(board[0, :, -1].sum() or board[1, :, 0].sum())
 
-    def initialize_state(self) -> QuoridorState:
+    def initialize_state(self) -> PuoriborState:
         """
-        Initialize a :obj:`QuoridorState` object with correct environment parameters.
+        Initialize a :obj:`PuoriborState` object with correct environment parameters.
 
         :returns:
             Created initial state object.
@@ -465,6 +614,8 @@ class QuoridorEnv(BaseEnv[QuoridorState, QuoridorAction]):
                 np.fliplr(starting_pos_0),
                 np.zeros((self.board_size, self.board_size), dtype=np.int_),
                 np.zeros((self.board_size, self.board_size), dtype=np.int_),
+                np.zeros((self.board_size, self.board_size), dtype=np.int_),
+                np.zeros((self.board_size, self.board_size), dtype=np.int_),
             ]
         )
 
@@ -478,7 +629,7 @@ class QuoridorEnv(BaseEnv[QuoridorState, QuoridorAction]):
                 starting_memory_cells[1, coordinate_x, coordinate_y, 0] = coordinate_y
                 starting_memory_cells[1, coordinate_x, coordinate_y, 1] = 0
 
-        initial_state = QuoridorState(
+        initial_state = PuoriborState(
             board=starting_board,
             walls_remaining=np.array((self.max_walls, self.max_walls)),
             memory_cells=starting_memory_cells,

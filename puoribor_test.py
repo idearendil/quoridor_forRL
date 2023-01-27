@@ -13,7 +13,7 @@ import numpy as np
 from colorama import Fore, Style
 
 from fights.base import BaseAgent
-import puoribor
+import faster_puoribor
 
 class RandomAgent(BaseAgent):
     env_id = ("puoribor", 3)  # type: ignore
@@ -22,21 +22,21 @@ class RandomAgent(BaseAgent):
         self.agent_id = agent_id  # type: ignore
         self._rng = np.random.default_rng(seed)
 
-    def _get_all_actions(self, state: puoribor.PuoriborState):
+    def _get_all_actions(self, state: faster_puoribor.PuoriborState):
         actions = []
         for action_type in [0, 1, 2, 3]:
-            for coordinate_x in range(puoribor.PuoriborEnv.board_size):
-                for coordinate_y in range(puoribor.PuoriborEnv.board_size):
+            for coordinate_x in range(faster_puoribor.PuoriborEnv.board_size):
+                for coordinate_y in range(faster_puoribor.PuoriborEnv.board_size):
                     action = [action_type, coordinate_x, coordinate_y]
                     try:
-                        puoribor.PuoriborEnv().step(state, self.agent_id, action)
+                        faster_puoribor.PuoriborEnv().step(state, self.agent_id, action)
                     except:
                         ...
                     else:
                         actions.append(action)
         return actions
 
-    def __call__(self, state: puoribor.PuoriborState) -> puoribor.PuoriborAction:
+    def __call__(self, state: faster_puoribor.PuoriborState) -> faster_puoribor.PuoriborAction:
         actions = self._get_all_actions(state)
         return self._rng.choice(actions)
 
@@ -54,10 +54,10 @@ def colorize_walls(s: str) -> str:
     )
 
 def run():
-    assert puoribor.PuoriborEnv.env_id == RandomAgent.env_id
+    assert faster_puoribor.PuoriborEnv.env_id == RandomAgent.env_id
     colorama.init()
 
-    state = puoribor.PuoriborEnv().initialize_state()
+    state = faster_puoribor.PuoriborEnv().initialize_state()
     agents = [RandomAgent(0), RandomAgent(1)]
 
     print("\x1b[2J")
@@ -71,7 +71,7 @@ def run():
         for agent in agents:
 
             action = agent(state)
-            state = puoribor.PuoriborEnv().step(state, agent.agent_id, action)
+            state = faster_puoribor.PuoriborEnv().step(state, agent.agent_id, action)
 
             print("\x1b[1;1H")
             print(fallback_to_ascii(colorize_walls(str(state))))
@@ -79,7 +79,7 @@ def run():
             a = input()
 
             if state.done:
-                print(f"agent {np.argmax(state.reward)} won in {it} iters")
+                print(f"agent {agent.agent_id} won in {it} iters")
                 break
 
         it += 1
