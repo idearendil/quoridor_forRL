@@ -47,7 +47,6 @@ def fallback_to_ascii(s: str) -> str:
         s = re.sub("[┌┬┐├┼┤└┴┘╋]", "+", re.sub("[─━]", "-", re.sub("[│┃]", "|", s)))
     return s
 
-
 def colorize_walls(s: str) -> str:
     return s.replace("━", Fore.BLUE + "━" + Style.RESET_ALL).replace(
         "┃", Fore.RED + "┃" + Style.RESET_ALL
@@ -58,7 +57,7 @@ def run():
     colorama.init()
 
     state = faster_quoridor.QuoridorEnv().initialize_state()
-    agents = [RandomAgent(0), RandomAgent(1)]
+    agents = [RandomAgent(0, 0), RandomAgent(1, 0)]
 
     print("\x1b[2J")
 
@@ -75,6 +74,7 @@ def run():
 
             print("\x1b[1;1H")
             print(fallback_to_ascii(colorize_walls(str(state))))
+            print(state.memory_cells[1,:,:,1])
 
             a = input()
 

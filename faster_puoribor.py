@@ -479,29 +479,21 @@ class PuoriborEnv(BaseEnv[PuoriborState, PuoriborAction]):
                             if (coordinate_x, coordinate_y) in horizontal_walls:
                                 for agent_id in range(2):
                                     if memory_cells[agent_id][coordinate_x][coordinate_y][0] > memory_cells[agent_id][coordinate_x][coordinate_y+1][0] + 1:
-                                        memory_cells[agent_id][coordinate_x][coordinate_y][0] = memory_cells[agent_id][coordinate_x][coordinate_y+1][0] + 1
-                                        memory_cells[agent_id][coordinate_x][coordinate_y][1] = 2
-                                        open_ones[agent_id].append((coordinate_x, coordinate_y))
-                                    if memory_cells[agent_id][coordinate_x][coordinate_y+1][0] > memory_cells[agent_id][coordinate_x][coordinate_y][0] + 1:
-                                        memory_cells[agent_id][coordinate_x][coordinate_y+1][0] = memory_cells[agent_id][coordinate_x][coordinate_y][0] + 1
-                                        memory_cells[agent_id][coordinate_x][coordinate_y+1][1] = 0
                                         open_ones[agent_id].append((coordinate_x, coordinate_y+1))
+                                    if memory_cells[agent_id][coordinate_x][coordinate_y+1][0] > memory_cells[agent_id][coordinate_x][coordinate_y][0] + 1:
+                                        open_ones[agent_id].append((coordinate_x, coordinate_y))
                         if board[3][coordinate_y][coordinate_x]:
                             if (coordinate_y, coordinate_x) not in vertical_walls:
                                 for agent_id in range(2):
                                     if memory_cells[agent_id][coordinate_y][coordinate_x][1] == 1:   cut_ones[agent_id].append((coordinate_y, coordinate_x))
-                                    if memory_cells[agent_id][coordinate_y][coordinate_x+1][1] == 3:   cut_ones[agent_id].append((coordinate_y, coordinate_x+1))
+                                    if memory_cells[agent_id][coordinate_y+1][coordinate_x][1] == 3:   cut_ones[agent_id].append((coordinate_y+1, coordinate_x))
                         else:
                             if (coordinate_y, coordinate_x) in vertical_walls:
                                 for agent_id in range(2):
-                                    if memory_cells[agent_id][coordinate_y][coordinate_x][0] > memory_cells[agent_id][coordinate_y][coordinate_x+1][0] + 1:
-                                        memory_cells[agent_id][coordinate_y][coordinate_x][0] = memory_cells[agent_id][coordinate_y][coordinate_x+1][0] + 1
-                                        memory_cells[agent_id][coordinate_y][coordinate_x][1] = 1
+                                    if memory_cells[agent_id][coordinate_y][coordinate_x][0] > memory_cells[agent_id][coordinate_y+1][coordinate_x][0] + 1:
+                                        open_ones[agent_id].append((coordinate_y+1, coordinate_x))
+                                    if memory_cells[agent_id][coordinate_y+1][coordinate_x][0] > memory_cells[agent_id][coordinate_y][coordinate_x][0] + 1:
                                         open_ones[agent_id].append((coordinate_y, coordinate_x))
-                                    if memory_cells[agent_id][coordinate_y][coordinate_x+1][0] > memory_cells[agent_id][coordinate_y][coordinate_x][0] + 1:
-                                        memory_cells[agent_id][coordinate_y][coordinate_x+1][0] = memory_cells[agent_id][coordinate_y][coordinate_x][0] + 1
-                                        memory_cells[agent_id][coordinate_y][coordinate_x+1][1] = 3
-                                        open_ones[agent_id].append((coordinate_y, coordinate_x+1))
         else:
             raise ValueError(f"invalid action_type: {action_type}")
 
@@ -513,25 +505,29 @@ class PuoriborEnv(BaseEnv[PuoriborState, PuoriborAction]):
 
                 visited = set(cut_ones[agent_id])
                 q = Deque(cut_ones[agent_id])
+                in_pri_q = set(open_ones[agent_id])
                 pri_q = PriorityQueue()
                 while q:
                     here = q.popleft()
                     memory_cells[agent_id][here[0]][here[1]][0] = 99999
                     memory_cells[agent_id][here[0]][here[1]][1] = -1
+                    in_pri_q.discard(here)
                     for dir_id, (dx, dy) in enumerate(directions):
                         there = (here[0] + dx, here[1] + dy)
                         if (not self._check_in_range(np.array(there))) or self._check_wall_blocked(board, np.array(here), np.array(there)):
                             continue
                         if there in visited:
                             continue
-                        visited.add(there)
                         if memory_cells[agent_id][there[0]][there[1]][1] == (dir_id + 2) % 4:
                             q.append(there)
+                            visited.add(there)
                         else:
-                            pri_q.put((memory_cells[agent_id][there[0]][there[1]][0], there))
+                            if memory_cells[agent_id][there[0]][there[1]][0] < 99999:
+                                in_pri_q.add(there)
+                
+                for element in in_pri_q:
+                    pri_q.put((memory_cells[agent_id][element[0]][element[1]][0], element))
 
-                for coordinate_x, coordinate_y in open_ones[agent_id]:
-                    pri_q.put((memory_cells[agent_id][coordinate_x][coordinate_y][0], (coordinate_x, coordinate_y)))
                 while not pri_q.empty():
                     dist, here = pri_q.get()
                     for dir_id, (dx, dy) in enumerate(directions):

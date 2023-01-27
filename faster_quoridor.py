@@ -368,22 +368,28 @@ class QuoridorEnv(BaseEnv[QuoridorState, QuoridorAction]):
 
                 visited = set(cut_ones[agent_id])
                 q = Deque(cut_ones[agent_id])
+                in_pri_q = set()
                 pri_q = PriorityQueue()
                 while q:
                     here = q.popleft()
                     memory_cells[agent_id][here[0]][here[1]][0] = 99999
                     memory_cells[agent_id][here[0]][here[1]][1] = -1
+                    in_pri_q.discard(here)
                     for dir_id, (dx, dy) in enumerate(directions):
                         there = (here[0] + dx, here[1] + dy)
                         if (not self._check_in_range(np.array(there))) or self._check_wall_blocked(board, np.array(here), np.array(there)):
                             continue
                         if there in visited:
                             continue
-                        visited.add(there)
                         if memory_cells[agent_id][there[0]][there[1]][1] == (dir_id + 2) % 4:
                             q.append(there)
+                            visited.add(there)
                         else:
-                            pri_q.put((memory_cells[agent_id][there[0]][there[1]][0], there))
+                            if memory_cells[agent_id][there[0]][there[1]][0] < 99999:
+                                in_pri_q.add(there)
+
+                for element in in_pri_q:
+                    pri_q.put((memory_cells[agent_id][element[0]][element[1]][0], element))
 
                 while not pri_q.empty():
                     dist, here = pri_q.get()

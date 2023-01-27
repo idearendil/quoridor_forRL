@@ -1,5 +1,5 @@
 """
-Othello Environment Speed Test
+Quoridor Environment Speed Test
 """
 
 import numpy as np

@@ -75,6 +75,7 @@ def run():
 
             print("\x1b[1;1H")
             print(fallback_to_ascii(colorize_walls(str(state))))
+            print(state.memory_cells[1,:,:,1])
 
             a = input()
 
