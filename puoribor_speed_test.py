@@ -65,8 +65,6 @@ def run_original():
 
     for game in range(10):
 
-        print(game)
-
         state = puoribor.PuoriborEnv().initialize_state()
         agents = [RandomAgent(0, game), RandomAgent(1, game)]
 
@@ -88,8 +86,6 @@ def run_faster():
     start = time.time()
 
     for game in range(10):
-
-        print(game)
 
         state = faster_puoribor.PuoriborEnv().initialize_state()
         agents = [FasterAgent(0, game), FasterAgent(1, game)]

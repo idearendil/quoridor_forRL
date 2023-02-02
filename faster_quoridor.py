@@ -449,6 +449,58 @@ class QuoridorEnv(BaseEnv[QuoridorState, QuoridorAction]):
     def _check_wins(self, board: NDArray[np.int_]) -> bool:
         return bool(board[0, :, -1].sum() or board[1, :, 0].sum())
 
+    def _build_state(self, board: NDArray[np.int_], walls_remaining: NDArray[np.int_], done: bool) -> QuoridorState:
+        """
+        Build a state(including memory_cells) from the current board information(board, walls_remaining and done).
+
+        :arg state:
+            Current state of the environment.
+
+        :returns:
+            A state which board is same as the input.
+        """
+        directions = [(0, -1), (1, 0), (0, 1), (-1, 0)]
+
+        memory_cells = np.zeros((2, self.board_size, self.board_size, 2), dtype=np.int_)
+
+        for agent_id in range(2):
+            
+            q = Deque()
+            visited = set()
+            if agent_id == 0:
+                for coordinate_x in range(self.board_size):
+                    q.append((coordinate_x, self.board_size-1))
+                    memory_cells[agent_id][coordinate_x][self.board_size-1][0] = 0
+                    memory_cells[agent_id][coordinate_x][self.board_size-1][1] = 2
+                    visited.add((coordinate_x, self.board_size-1))
+            else:
+                for coordinate_x in range(self.board_size):
+                    q.append((coordinate_x, 0))
+                    memory_cells[agent_id][coordinate_x][0][0] = 0
+                    memory_cells[agent_id][coordinate_x][0][1] = 0
+                    visited.add((coordinate_x, 0))
+            while q:
+                here = q.popleft()
+                for dir_id, (dx, dy) in enumerate(directions):
+                    there = (here[0] + dx, here[1] + dy)
+                    if (not self._check_in_range(np.array(there))) or self._check_wall_blocked(board, np.array(here), np.array(there)):
+                        continue
+                    if there in visited:
+                        continue
+                    memory_cells[agent_id][there[0]][there[1]][0] = memory_cells[agent_id][here[0]][here[1]][0] + 1
+                    memory_cells[agent_id][there[0]][there[1]][1] = (dir_id + 2) % 4
+                    q.append(there)
+                    visited.add(there)
+        
+        new_state = QuoridorState(
+            board=board,
+            walls_remaining=walls_remaining,
+            memory_cells=memory_cells,
+            done=done,
+        )
+
+        return new_state
+
     def initialize_state(self) -> QuoridorState:
         """
         Initialize a :obj:`QuoridorState` object with correct environment parameters.
@@ -474,21 +526,4 @@ class QuoridorEnv(BaseEnv[QuoridorState, QuoridorAction]):
             ]
         )
 
-        starting_memory_cells = np.zeros((2, self.board_size, self.board_size, 2), dtype=np.int_)
-        for coordinate_x in range(self.board_size):
-            for coordinate_y in range(self.board_size):
-                starting_memory_cells[0, coordinate_x, coordinate_y, 0] = 8 - coordinate_y
-                starting_memory_cells[0, coordinate_x, coordinate_y, 1] = 2
-        for coordinate_x in range(self.board_size):
-            for coordinate_y in range(self.board_size):
-                starting_memory_cells[1, coordinate_x, coordinate_y, 0] = coordinate_y
-                starting_memory_cells[1, coordinate_x, coordinate_y, 1] = 0
-
-        initial_state = QuoridorState(
-            board=starting_board,
-            walls_remaining=np.array((self.max_walls, self.max_walls)),
-            memory_cells=starting_memory_cells,
-            done=False,
-        )
-
-        return initial_state
+        return self._build_state(starting_board, np.array((self.max_walls, self.max_walls)), False)
